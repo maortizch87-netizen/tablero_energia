@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Tablero Energético Distrital - Perú</title>
+
+  <!-- Leaflet CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: system-ui, -apple-system, sans-serif; }
+    body { display: flex; height: 100vh; overflow: hidden; background: #0f172a; }
+
+    #sidebar {
+      width: 380px;
+      padding: 22px;
+      background: #ffffff;
+      border-right: 1px solid #e2e8f0;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      overflow-y: auto;
+      z-index: 1000;
+      box-shadow: 2px 0 10px rgba(0,0,0,0.05);
+    }
+
+    #map { flex: 1; height: 100%; background: #e2e8f0; }
+
+    .header-tag { font-size: 0.75rem; font-weight: 700; color: #2563eb; text-transform: uppercase; }
+    h1 { font-size: 1.3rem; color: #0f172a; margin-top: 4px; }
+
+    .card {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      padding: 14px;
+    }
+
+    .kpi-title { font-size: 0.72rem; color: #64748b; font-weight: 600; text-transform: uppercase; }
+    .kpi-value { font-size: 1.6rem; font-weight: 700; color: #0f172a; margin-top: 4px; }
+    .kpi-sub { font-size: 0.8rem; color: #64748b; margin-top: 2px; }
+
+    .form-group { display: flex; flex-direction: column; gap: 5px; }
+    label { font-size: 0.82rem; font-weight: 600; color: #334155; }
+    select, input {
+      width: 100%;
+      padding: 8px 12px;
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      font-size: 0.9rem;
+      background: #ffffff;
+      outline: none;
+    }
+    select:focus, input:focus { border-color: #2563eb; }
+
+    .legend-bar {
+      display: flex;
+      height: 10px;
+      border-radius: 5px;
+      overflow: hidden;
+      margin: 8px 0 4px 0;
+    }
+    .legend-labels {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.72rem;
+      color: #64748b;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Panel Lateral de Control -->
+  <aside id="sidebar">
+    <div>
+      <span class="header-tag">Censo de Vivienda</span>
+      <h1>Electrificación Distrital 🇵🇪</h1>
+    </div>
+
+    <!-- Indicador KPI -->
+    <div class="card">
+      <div class="kpi-title" id="kpi-label">Promedio de Cobertura</div>
+      <div class="kpi-value" id="kpi-main">-- %</div>
+      <div class="kpi-sub" id="kpi-detail">Cargando datos...</div>
+    </div>
+
+    <!-- Selector de Indicador -->
+    <div class="form-group">
+      <label for="metric-select">Variable a Visualizar</label>
+      <select id="metric-select">
+        <option value="Pct Red pública">Acceso a Red Pública (%)</option>
+        <option value="PCT Sin energía">Sin Energía Eléctrica (%)</option>
+        <option value="PCT Energías limpias">Energías Limpias / Paneles (%)</option>
+      </select>
+    </div>
+
+    <!-- Filtro por Departamento -->
+    <div class="form-group">
+      <label for="dept-select">Filtrar Departamento</label>
+      <select id="dept-select">
+        <option value="TODOS">Todo el Perú</option>
+      </select>
+    </div>
+
+    <!-- Buscador por texto -->
+    <div class="form-group">
+      <label for="search-input">Buscar Distrito o Provincia</label>
+      <input type="text" id="search-input" placeholder="Ej. Imaza, Chachapoyas..." />
+    </div>
+
+    <!-- Leyenda de colores -->
+    <div class="card">
+      <div class="kpi-title">Escala de Valor</div>
+      <div class="legend-bar" id="legend-bar" style="background: linear-gradient(to right, #ef4444, #eab308, #15803d);"></div>
+      <div class="legend-labels">
+        <span>0%</span>
+        <span>50%</span>
+        <span>100%</span>
+      </div>
+    </div>
+
+    <div style="font-size:0.75rem; color:#94a3b8; margin-top:auto;">
+      Datos oficiales INEI procesados a nivel distrital.
+    </div>
+  </aside>
+
+  <!-- Área del Mapa -->
+  <main id="map"></main>
+
+  <!-- Librerías de soporte -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+
+  <script>
+    // Inicialización del visor centrado en el territorio peruano
+    const map = L.map('map').setView([-9.19, -75.01], 6);
+
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+      attribution: '&copy; OpenStreetMap &copy; CARTO',
+      maxZoom: 18
+    }).addTo(map);
+
+    let geojsonLayer;
+    let distritosGeo = null;
+    let datosEnergia = {};
+    let listaDepartamentos = new Set();
+
+    // Asignación de color según rango
+    function getColor(value, metric) {
+      if (metric === "Pct Red pública") {
+        return value > 90 ? '#15803d' :
+               value > 75 ? '#22c55e' :
+               value > 50 ? '#eab308' :
+               value > 25 ? '#f97316' : '#ef4444';
+      } else if (metric === "PCT Sin energía") {
+        return value > 40 ? '#7f1d1d' :
+               value > 25 ? '#dc2626' :
+               value > 15 ? '#f97316' :
+               value > 5  ? '#facc15' : '#10b981';
+      } else {
+        return value > 40 ? '#047857' :
+               value > 20 ? '#10b981' :
+               value > 10 ? '#34d399' :
+               value > 2  ? '#6ee7b7' : '#cbd5e1';
+      }
+    }
+
+    function style(feature) {
+      const ubigeo = feature.properties.IDDIST || feature.properties.UBIGEO;
+      const data = datosEnergia[ubigeo];
+      const metric = document.getElementById('metric-select').value;
+      const val = data ? (parseFloat(data[metric]) || 0) : 0;
+
+      return {
+        fillColor: getColor(val, metric),
+        weight: 1,
+        opacity: 0.8,
+        color: '#ffffff',
+        fillOpacity: 0.8
+      };
+    }
+
+    function actualizarKPIs() {
+      const metric = document.getElementById('metric-select').value;
+      const dept = document.getElementById('dept-select').value;
+      const query = document.getElementById('search-input').value.toLowerCase();
+
+      let sum = 0, count = 0, maxVal = -1, maxDist = "";
+
+      Object.values(datosEnergia).forEach(d => {
+        if (dept !== "TODOS" && d.Departamento !== dept) return;
+        if (query && !d.Distrito.toLowerCase().includes(query) && !d.Provincia.toLowerCase().includes(query)) return;
+
+        const val = parseFloat(d[metric]) || 0;
+        sum += val;
+        count++;
+        if (val > maxVal) {
+          maxVal = val;
+          maxDist = `${d.Distrito} (${d.Provincia})`;
+        }
+      });
+
+      const avg = count > 0 ? (sum / count).toFixed(1) : 0;
+      document.getElementById('kpi-main').textContent = `${avg}%`;
+      document.getElementById('kpi-detail').textContent = count > 0 
+        ? `Máximo: ${maxVal.toFixed(1)}% en ${maxDist}`
+        : 'Sin distritos coincidentes';
+    }
+
+    function aplicarFiltros() {
+      if (!geojsonLayer) return;
+      const dept = document.getElementById('dept-select').value;
+      const query = document.getElementById('search-input').value.toLowerCase();
+
+      geojsonLayer.eachLayer(layer => {
+        const ubigeo = layer.feature.properties.IDDIST || layer.feature.properties.UBIGEO;
+        const d = datosEnergia[ubigeo];
+
+        let visible = true;
+        if (d) {
+          if (dept !== "TODOS" && d.Departamento !== dept) visible = false;
+          if (query && !d.Distrito.toLowerCase().includes(query) && !d.Provincia.toLowerCase().includes(query)) visible = false;
+        } else {
+          visible = false;
+        }
+
+        if (visible) {
+          layer.setStyle(style(layer.feature));
+        } else {
+          layer.setStyle({ fillOpacity: 0, opacity: 0 });
+        }
+      });
+
+      actualizarKPIs();
+    }
+
+    // Carga paralela de cartografía y datos
+    async function inicializarTablero() {
+      try {
+        const resGeo = await fetch("https://raw.githubusercontent.com/juaneladio/peru-geojson/master/peru_distrital_simple.geojson");
+        distritosGeo = await resGeo.json();
+
+        Papa.parse("base_energia_viviendas.csv", {
+          download: true,
+          header: true,
+          skipEmptyLines: true,
+          complete: function(results) {
+            results.data.forEach(row => {
+              if (row.UBIGEO) {
+                const ubi = String(row.UBIGEO).trim().padStart(6, '0');
+                datosEnergia[ubi] = row;
+                if (row.Departamento) listaDepartamentos.add(row.Departamento.trim());
+              }
+            });
+
+            const deptSelect = document.getElementById('dept-select');
+            Array.from(listaDepartamentos).sort().forEach(dep => {
+              const opt = document.createElement('option');
+              opt.value = dep;
+              opt.textContent = dep;
+              deptSelect.appendChild(opt);
+            });
+
+            geojsonLayer = L.geoJson(distritosGeo, {
+              style: style,
+              onEachFeature: function(feature, layer) {
+                const ubi = feature.properties.IDDIST || feature.properties.UBIGEO;
+                const d = datosEnergia[ubi];
+                if (d) {
+                  layer.bindPopup(`
+                    <div style="font-size:0.9rem; line-height:1.4;">
+                      <strong style="font-size:1rem; color:#0f172a;">${d.Distrito}</strong><br/>
+                      <span style="color:#64748b;">${d.Provincia}, ${d.Departamento}</span>
+                      <hr style="margin:8px 0; border:0; border-top:1px solid #e2e8f0;"/>
+                      <div>⚡ <strong>Red pública:</strong> ${d['Pct Red pública']}%</div>
+                      <div>☀️ <strong>Energías limpias:</strong> ${d['PCT Energías limpias']}%</div>
+                      <div>⚠️ <strong>Sin electricidad:</strong> ${d['PCT Sin energía']}%</div>
+                      <div style="margin-top:6px; font-size:0.75rem; color:#64748b;">Viviendas analizadas: ${d.Total}</div>
+                    </div>
+                  `);
+                }
+              }
+            }).addTo(map);
+
+            actualizarKPIs();
+          }
+        });
+      } catch (err) {
+        console.error("Error al cargar capas:", err);
+      }
+    }
+
+    document.getElementById('metric-select').addEventListener('change', () => {
+      geojsonLayer.setStyle(style);
+      actualizarKPIs();
+    });
+    document.getElementById('dept-select').addEventListener('change', aplicarFiltros);
+    document.getElementById('search-input').addEventListener('input', aplicarFiltros);
+
+    inicializarTablero();
+  </script>
+</body>
+</html>
