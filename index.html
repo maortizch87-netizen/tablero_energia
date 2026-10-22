@@ -166,8 +166,13 @@
       }
     }
 
-    function style(feature) {
-      const ubigeo = feature.properties.IDDIST || feature.properties.UBIGEO;
+      function style(feature) {
+      let ubigeo = feature.properties.IDDIST || feature.properties.UBIGEO;
+      
+      // PARCHE LORETO: Enlazar cartografía antigua (Maynas) con datos nuevos (Prov. Putumayo)
+      if (ubigeo === '160109') ubigeo = '160801'; // Antiguo Putumayo -> Nuevo Putumayo
+      if (ubigeo === '160114') ubigeo = '160803'; // Antiguo Tnte. Clavero -> Nuevo Tnte. Clavero
+
       const data = datosEnergia[ubigeo];
       const metric = document.getElementById('metric-select').value;
       const val = data ? (parseFloat(data[metric]) || 0) : 0;
@@ -281,9 +286,14 @@
 
             geojsonLayer = L.geoJson(distritosGeo, {
               style: style,
-              onEachFeature: function(feature, layer) {
-                const ubi = feature.properties.IDDIST || feature.properties.UBIGEO;
-                const d = datosEnergia[ubi];
+            onEachFeature: function(feature, layer) {
+              let ubi = feature.properties.IDDIST || feature.properties.UBIGEO;
+              
+              // PARCHE LORETO (Etiquetas)
+              if (ubi === '160109') ubi = '160801';
+              if (ubi === '160114') ubi = '160803';
+
+              const d = datosEnergia[ubi];
                 if (d) {
                   layer.bindPopup(`
                     <div style="font-size:0.9rem; line-height:1.4;">
