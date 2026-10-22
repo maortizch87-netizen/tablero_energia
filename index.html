@@ -212,11 +212,14 @@
       if (!geojsonLayer) return;
       const dept = document.getElementById('dept-select').value;
       const query = document.getElementById('search-input').value.toLowerCase();
-
+    
+      let bounds = L.latLngBounds();
+      let hasVisible = false;
+    
       geojsonLayer.eachLayer(layer => {
         const ubigeo = layer.feature.properties.IDDIST || layer.feature.properties.UBIGEO;
         const d = datosEnergia[ubigeo];
-
+    
         let visible = true;
         if (d) {
           if (dept !== "TODOS" && d.Departamento !== dept) visible = false;
@@ -224,14 +227,22 @@
         } else {
           visible = false;
         }
-
+    
         if (visible) {
           layer.setStyle(style(layer.feature));
+          bounds.extend(layer.getBounds());
+          hasVisible = true;
         } else {
           layer.setStyle({ fillOpacity: 0, opacity: 0 });
         }
       });
-
+    
+      if (hasVisible && dept !== "TODOS") {
+        map.fitBounds(bounds, { padding: [30, 30] });
+      } else if (dept === "TODOS" && !query) {
+        map.setView([-9.19, -75.01], 6);
+      }
+    
       actualizarKPIs();
     }
 
@@ -246,13 +257,19 @@
           header: true,
           skipEmptyLines: true,
           complete: function(results) {
-            results.data.forEach(row => {
-              if (row.UBIGEO) {
-                const ubi = String(row.UBIGEO).trim().padStart(6, '0');
-                datosEnergia[ubi] = row;
-                if (row.Departamento) listaDepartamentos.add(row.Departamento.trim());
+          results.data.forEach(row => {
+            if (row.UBIGEO) {
+              let ubi = String(row.UBIGEO).trim().padStart(6, '0');
+          
+              // Homologar códigos REDATAM de Lima (26 y 27) al código oficial cartográfico (15)
+              if (ubi.startsWith('26') || ubi.startsWith('27')) {
+                ubi = '15' + ubi.substring(2);
               }
-            });
+          
+              datosEnergia[ubi] = row;
+              if (row.Departamento) listaDepartamentos.add(row.Departamento.trim());
+            }
+          });
 
             const deptSelect = document.getElementById('dept-select');
             Array.from(listaDepartamentos).sort().forEach(dep => {
