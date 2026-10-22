@@ -251,30 +251,39 @@
       actualizarKPIs();
     }
 
-    // Carga paralela de cartografía y datos
+// Carga paralela de cartografía y datos
     async function inicializarTablero() {
       try {
         const resGeo = await fetch("https://raw.githubusercontent.com/juaneladio/peru-geojson/master/peru_distrital_simple.geojson");
         distritosGeo = await resGeo.json();
+
+        // 1. CORRECCIÓN EN LA RAÍZ: Actualizar polígonos antiguos de Loreto
+        distritosGeo.features.forEach(f => {
+          let ubi = String(f.properties.IDDIST || f.properties.UBIGEO || '').trim().padStart(6, '0');
+          if (ubi === '160109') ubi = '160801'; // Putumayo
+          if (ubi === '160114') ubi = '160803'; // Teniente Manuel Clavero
+          f.properties.IDDIST = ubi;
+          f.properties.UBIGEO = ubi;
+        });
 
         Papa.parse("base_energia_viviendas.csv", {
           download: true,
           header: true,
           skipEmptyLines: true,
           complete: function(results) {
-          results.data.forEach(row => {
-            if (row.UBIGEO) {
-              let ubi = String(row.UBIGEO).trim().padStart(6, '0');
+            results.data.forEach(row => {
+              if (row.UBIGEO) {
+                let ubi = String(row.UBIGEO).trim().padStart(6, '0');
           
-              // Homologar códigos REDATAM de Lima (26 y 27) al código oficial cartográfico (15)
-              if (ubi.startsWith('26') || ubi.startsWith('27')) {
-                ubi = '15' + ubi.substring(2);
+                // Homologar Lima (códigos REDATAM 26 y 27 al oficial 15)
+                if (ubi.startsWith('26') || ubi.startsWith('27')) {
+                  ubi = '15' + ubi.substring(2);
+                }
+          
+                datosEnergia[ubi] = row;
+                if (row.Departamento) listaDepartamentos.add(row.Departamento.trim());
               }
-          
-              datosEnergia[ubi] = row;
-              if (row.Departamento) listaDepartamentos.add(row.Departamento.trim());
-            }
-          });
+            });
 
             const deptSelect = document.getElementById('dept-select');
             Array.from(listaDepartamentos).sort().forEach(dep => {
@@ -286,14 +295,9 @@
 
             geojsonLayer = L.geoJson(distritosGeo, {
               style: style,
-            onEachFeature: function(feature, layer) {
-              let ubi = feature.properties.IDDIST || feature.properties.UBIGEO;
-              
-              // PARCHE LORETO (Etiquetas)
-              if (ubi === '160109') ubi = '160801';
-              if (ubi === '160114') ubi = '160803';
-
-              const d = datosEnergia[ubi];
+              onEachFeature: function(feature, layer) {
+                const ubi = feature.properties.IDDIST || feature.properties.UBIGEO;
+                const d = datosEnergia[ubi];
                 if (d) {
                   layer.bindPopup(`
                     <div style="font-size:0.9rem; line-height:1.4;">
