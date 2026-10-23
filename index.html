@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <title>Tablero Energético Distrital - Perú</title>
 
   <!-- Leaflet CSS -->
@@ -10,8 +10,9 @@
 
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: system-ui, -apple-system, sans-serif; }
-    body { display: flex; height: 100vh; overflow: hidden; background: #0f172a; }
+    body { display: flex; height: 100vh; height: 100dvh; overflow: hidden; background: #0f172a; position: relative; }
 
+    /* PANEL LATERAL (Escritorio por defecto) */
     #sidebar {
       width: 380px;
       padding: 22px;
@@ -30,6 +31,12 @@
     .header-tag { font-size: 0.75rem; font-weight: 700; color: #2563eb; text-transform: uppercase; }
     h1 { font-size: 1.3rem; color: #0f172a; margin-top: 4px; }
 
+    .sidebar-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+    }
+
     .card {
       background: #f8fafc;
       border: 1px solid #e2e8f0;
@@ -45,10 +52,10 @@
     label { font-size: 0.82rem; font-weight: 600; color: #334155; }
     select, input {
       width: 100%;
-      padding: 8px 12px;
+      padding: 10px 12px;
       border: 1px solid #cbd5e1;
       border-radius: 6px;
-      font-size: 0.9rem;
+      font-size: 0.95rem;
       background: #ffffff;
       outline: none;
     }
@@ -67,15 +74,109 @@
       font-size: 0.72rem;
       color: #64748b;
     }
+
+    /* ELEMENTOS EXCLUSIVOS PARA MÓVIL */
+    .mobile-toggle-btn { display: none; }
+    .mobile-close-btn { display: none; }
+    .btn-close-header { display: none; }
+
+    /* ADAPTACIÓN RESPONSIVA (CELULARES Y TABLETS: Pantallas <= 768px) */
+    @media (max-width: 768px) {
+      body {
+        flex-direction: column;
+      }
+
+      #map {
+        width: 100vw;
+        height: 100vh;
+        height: 100dvh;
+        z-index: 1;
+      }
+
+      /* El panel se convierte en ventana modal deslizable desde abajo */
+      #sidebar {
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        width: 100%;
+        height: 85vh;
+        height: 85dvh;
+        border-right: none;
+        border-radius: 18px 18px 0 0;
+        box-shadow: 0 -8px 24px rgba(0,0,0,0.25);
+        z-index: 2000;
+        transform: translateY(100%);
+        transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        padding: 20px;
+      }
+
+      #sidebar.open {
+        transform: translateY(0);
+      }
+
+      /* Botón flotante inferior para abrir menú */
+      .mobile-toggle-btn {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        position: fixed;
+        bottom: 24px;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 1500;
+        background: #0f172a;
+        color: #ffffff;
+        border: none;
+        padding: 12px 22px;
+        border-radius: 50px;
+        font-size: 0.95rem;
+        font-weight: 700;
+        box-shadow: 0 4px 18px rgba(0,0,0,0.35);
+        cursor: pointer;
+      }
+
+      /* Botones de cierre en móvil */
+      .btn-close-header {
+        display: block;
+        background: transparent;
+        border: none;
+        font-size: 1.6rem;
+        color: #64748b;
+        cursor: pointer;
+        line-height: 1;
+      }
+
+      .mobile-close-btn {
+        display: block;
+        width: 100%;
+        padding: 12px;
+        background: #2563eb;
+        color: white;
+        border: none;
+        border-radius: 8px;
+        font-size: 1rem;
+        font-weight: 600;
+        cursor: pointer;
+        margin-top: 6px;
+      }
+    }
   </style>
 </head>
 <body>
 
-  <!-- Panel Lateral de Control -->
+  <!-- Botón flotante que aparece en celulares -->
+  <button class="mobile-toggle-btn" id="mobile-toggle">
+    📊 Filtros y Estadísticas
+  </button>
+
+  <!-- Panel Lateral / Modal en móvil -->
   <aside id="sidebar">
-    <div>
-      <span class="header-tag">Censo de Vivienda</span>
-      <h1>Electrificación Distrital 🇵🇪</h1>
+    <div class="sidebar-header">
+      <div>
+        <span class="header-tag">Censo de Vivienda</span>
+        <h1>Electrificación Distrital 🇵🇪</h1>
+      </div>
+      <button class="btn-close-header" id="btn-close-x" title="Cerrar">✕</button>
     </div>
 
     <!-- Indicador KPI -->
@@ -120,6 +221,9 @@
       </div>
     </div>
 
+    <!-- Botón para cerrar en celular -->
+    <button class="mobile-close-btn" id="mobile-close-action">🗺️ Ver en el Mapa</button>
+
     <div style="font-size:0.75rem; color:#94a3b8; margin-top:auto;">
       Datos oficiales INEI procesados a nivel distrital.
     </div>
@@ -133,8 +237,9 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
 
   <script>
-    // Inicialización del visor centrado en el territorio peruano
-    const map = L.map('map').setView([-9.19, -75.01], 6);
+    // Ajustar zoom inicial según el tamaño de la pantalla
+    const isMobile = window.innerWidth <= 768;
+    const map = L.map('map').setView([-9.19, -75.01], isMobile ? 5 : 6);
 
     L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
       attribution: 'Tiles &copy; Esri',
@@ -146,7 +251,7 @@
     let datosEnergia = {};
     let listaDepartamentos = new Set();
 
-    // Asignación de color según rango
+    // Paletas de color por métrica
     function getColor(value, metric) {
       if (metric === "Pct Red pública") {
         return value > 90 ? '#15803d' :
@@ -166,13 +271,8 @@
       }
     }
 
-      function style(feature) {
-      let ubigeo = feature.properties.IDDIST || feature.properties.UBIGEO;
-      
-      // PARCHE LORETO: Enlazar cartografía antigua (Maynas) con datos nuevos (Prov. Putumayo)
-      if (ubigeo === '160109') ubigeo = '160801'; // Antiguo Putumayo -> Nuevo Putumayo
-      if (ubigeo === '160114') ubigeo = '160803'; // Antiguo Tnte. Clavero -> Nuevo Tnte. Clavero
-
+    function style(feature) {
+      const ubigeo = feature.properties.IDDIST || feature.properties.UBIGEO;
       const data = datosEnergia[ubigeo];
       const metric = document.getElementById('metric-select').value;
       const val = data ? (parseFloat(data[metric]) || 0) : 0;
@@ -217,14 +317,14 @@
       if (!geojsonLayer) return;
       const dept = document.getElementById('dept-select').value;
       const query = document.getElementById('search-input').value.toLowerCase();
-    
+
       let bounds = L.latLngBounds();
       let hasVisible = false;
-    
+
       geojsonLayer.eachLayer(layer => {
         const ubigeo = layer.feature.properties.IDDIST || layer.feature.properties.UBIGEO;
         const d = datosEnergia[ubigeo];
-    
+
         let visible = true;
         if (d) {
           if (dept !== "TODOS" && d.Departamento !== dept) visible = false;
@@ -232,7 +332,7 @@
         } else {
           visible = false;
         }
-    
+
         if (visible) {
           layer.setStyle(style(layer.feature));
           bounds.extend(layer.getBounds());
@@ -241,23 +341,23 @@
           layer.setStyle({ fillOpacity: 0, opacity: 0 });
         }
       });
-    
+
       if (hasVisible && dept !== "TODOS") {
         map.fitBounds(bounds, { padding: [30, 30] });
       } else if (dept === "TODOS" && !query) {
-        map.setView([-9.19, -75.01], 6);
+        map.setView([-9.19, -75.01], isMobile ? 5 : 6);
       }
-    
+
       actualizarKPIs();
     }
 
-// Carga paralela de cartografía y datos
+    // Carga cartografía y datos
     async function inicializarTablero() {
       try {
         const resGeo = await fetch("https://raw.githubusercontent.com/juaneladio/peru-geojson/master/peru_distrital_simple.geojson");
         distritosGeo = await resGeo.json();
 
-        // 1. CORRECCIÓN EN LA RAÍZ: Actualizar polígonos antiguos de Loreto
+        // Corrección de polígonos antiguos de Loreto
         distritosGeo.features.forEach(f => {
           let ubi = String(f.properties.IDDIST || f.properties.UBIGEO || '').trim().padStart(6, '0');
           if (ubi === '160109') ubi = '160801'; // Putumayo
@@ -322,12 +422,19 @@
       }
     }
 
+    // Interacción de interfaz
     document.getElementById('metric-select').addEventListener('change', () => {
       geojsonLayer.setStyle(style);
       actualizarKPIs();
     });
     document.getElementById('dept-select').addEventListener('change', aplicarFiltros);
     document.getElementById('search-input').addEventListener('input', aplicarFiltros);
+
+    // Controles para abrir y cerrar menú en celulares
+    const sidebar = document.getElementById('sidebar');
+    document.getElementById('mobile-toggle').addEventListener('click', () => sidebar.classList.add('open'));
+    document.getElementById('btn-close-x').addEventListener('click', () => sidebar.classList.remove('open'));
+    document.getElementById('mobile-close-action').addEventListener('click', () => sidebar.classList.remove('open'));
 
     inicializarTablero();
   </script>
